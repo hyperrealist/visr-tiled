@@ -43,7 +43,14 @@ ENV PATH=/app/.venv/bin:$PATH
 # ENTRYPOINT ["visr-tiled"]
 # CMD ["--version"]
 
-# Expose Tiled server port and default CMD to run the server
+
+
+
+# Tiled-specifics
+
+RUN mkdir -p /deploy/config
+COPY example_configs/single_catalog_single_user.yml /deploy/config
+ENV TILED_CONFIG=/deploy/config
 
 EXPOSE 8000
 
