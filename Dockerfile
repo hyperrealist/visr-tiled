@@ -39,6 +39,13 @@ COPY --from=build /python /python
 COPY --from=build /app/.venv /app/.venv
 ENV PATH=/app/.venv/bin:$PATH
 
-# change this entrypoint if it is not the same as the repo
-ENTRYPOINT ["visr-tiled"]
-CMD ["--version"]
+# # change this entrypoint if it is not the same as the repo
+# ENTRYPOINT ["visr-tiled"]
+# CMD ["--version"]
+
+# Expose Tiled server port and default CMD to run the server
+
+EXPOSE 8000
+
+ENTRYPOINT []
+CMD ["tiled", "serve", "config", "--host", "0.0.0.0", "--port", "8000", "--scalable"]
