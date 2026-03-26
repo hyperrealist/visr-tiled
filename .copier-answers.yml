@@ -1,0 +1,17 @@
+# Changes here will be overwritten by Copier
+_commit: 5.0.0a5-7-g47dcc42
+_src_path: https://github.com/hyperrealist/python-copier-template.git
+author_email: hiran.wijesinghe@diamond.ac.uk
+author_name: Hiran Wijesinghe
+description: An experimental packaging of Tiled for ViSR with extra goodies
+distribution_name: visr-tiled
+docker: true
+docker_debug: false
+docs_type: README
+git_platform: github.com
+github_org: hyperrealist
+package_name: visr_tiled
+pypi: false
+repo_name: visr-tiled
+strict_typing: true
+type_checker: pyright
