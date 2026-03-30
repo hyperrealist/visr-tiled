@@ -96,4 +96,8 @@ EXPOSE 8000
 USER ubuntu
 # ----------------------------------------------------------------------------------------------------- /user
 ENTRYPOINT []
-CMD ["tiled", "serve", "config", "--host", "0.0.0.0", "--port", "8000", "--scalable"]
+# CMD ["tiled", "serve", "config", "--host", "0.0.0.0", "--port", "8000", "--scalable"]
+CMD ["python", "-Xfrozen_modules=off", "-m", "debugpy", \
+    "--listen", "0.0.0.0:5678", "--wait-for-client", \
+    "-m", "tiled", "serve", "config", \
+    "--host", "0.0.0.0", "--port", "8000", "--scalable"]
