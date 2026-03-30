@@ -4,7 +4,7 @@ FROM ghcr.io/diamondlightsource/ubuntu-devcontainer:noble AS developer
 
 # Add any system dependencies for the developer/build environment here
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
-    graphviz libnss-wrapper \
+    graphviz \
     && apt-get dist-clean
 
 # The build stage installs the context into the venv
@@ -36,7 +36,7 @@ FROM ubuntu:noble AS runtime
 #     && apt-get dist-clean
 # ----------------------------------------------------------------------------------------------------- gdb
 RUN apt-get update -y && apt-get install -y --no-install-recommends \
-    gdb  \
+    gdb libnss-wrapper \
     && apt-get dist-clean
 # ----------------------------------------------------------------------------------------------------- /gdb
 
@@ -102,6 +102,3 @@ CMD ["python", "-Xfrozen_modules=off", "-m", "debugpy", \
     "--listen", "0.0.0.0:5678", "--wait-for-client", \
     "-m", "tiled", "serve", "config", \
     "--host", "0.0.0.0", "--port", "8000", "--scalable"]
-
-
-# TODO: move libnss-wrapper to the runtime stage if it is only needed for runtime and not for build.
