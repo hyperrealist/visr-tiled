@@ -66,13 +66,13 @@ data_file = "/tmp/visr_tiled.coverage"
 source = ["src", "**/site-packages/"]
 
 [tool.tox]
-skipsdist = true
 # envs to runs automatically with tox -p
 env_list = ["pre-commit", "type-checking", "tests"]
 
 [tool.tox.env_run_base]
 # Pass all environment variables to the test environments
 passenv = ["*"]
+dependency_groups = ["dev"]
 
 [tool.tox.env.pre-commit]
 description = "Run pre-commit on all files"
