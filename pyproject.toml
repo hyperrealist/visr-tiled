@@ -12,7 +12,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 description = "An experimental packaging of Tiled for ViSR with extra goodies"
-dependencies = ["tiled[server] @ ./tiled-patched"]
+dependencies = ["tiled[server]"]
 dynamic = ["version"]
 license.file = "LICENSE"
 readme = "README.md"
@@ -116,8 +116,12 @@ commands = [
     ],
 ]
 
+[tool.uv.sources]
+tiled = { path = "tiled-patched" }
+
 [tool.ruff]
 src = ["src", "tests"]
+exclude = ["tiled-patched"]
 line-length = 88
 lint.select = [
     "B",   # flake8-bugbear - https://docs.astral.sh/ruff/rules/#flake8-bugbear-b
