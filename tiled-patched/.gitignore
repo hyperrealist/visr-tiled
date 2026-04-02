@@ -1,0 +1,87 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+
+# Sphinx documentation
+docs/build/
+docs/source/reference/generated/
+
+# Builds
+/build
+/dist
+/tiled.egg-info
+/web-frontend/dist
+
+/web-frontend/node_modules
+
+# pytest
+.pytest_cache/
+
+# Unit test / coverage reports
+coverage/
+htmlcov/
+.tox/
+.coverage
+.cache
+nosetests.xml
+coverage.xml
+cover/*
+
+# PyBuilder
+target/
+
+# Editor files
+#mac
+.DS_Store
+*~
+
+#vim
+*.swp
+*.swo
+
+#pycharm
+.idea/
+
+#VSCode
+.vscode/*
+!.vscode/launch.json
+
+#Ipython Notebook
+.ipynb_checkpoints
+
+example_files/
+tokens.json
+
+# generated docs
+docs/source/reference/client-profiles.md
+docs/source/reference/service-configuration.md
+docs/source/reference/api.yml
+
+# placed React bundle
+share/tiled/ui
+
+config.yaml
+config.yml
+*.sqlite
+*.db
+*.db-wal
+*.db-shm
+
+prometheus_data
+grafana_data
+data
+alembic.ini
+
+tiled/_version.py
+
+.env
+.asv/
+venv/
+# pixi environments
+.pixi
+pixi.lock
+# uv environments
+uv.lock
+.venv
+# pixi environments
+.pixi/*
+!.pixi/config.toml

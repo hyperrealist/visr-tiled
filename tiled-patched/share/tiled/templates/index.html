@@ -1,0 +1,66 @@
+{% extends "page.html" %}
+{% block stylesheet %}
+{{ super() }}
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@0.9.3/css/bulma.min.css">
+{% endblock %}
+{% block main %}
+<div class = "container">
+  <section class="section">
+    <h1 class="title">Explore from your web browser</h1>
+    <h2 class="subtitle">
+      Use a basic, data-oriented web interface to navigate Tiled.
+    </h2>
+    <a href="ui/browse/" target="_blank" rel="noreferrer">
+      <button class="button is-large is-responsive is-link">
+        Try it
+      </button>
+    </a>
+  </section>
+  <section class="section">
+    <h1 class="title">Explore from Python</h1>
+    <h2 class="subtitle">
+      Install and use Tiled's Python client from Python, IPython, or Jupyter.
+    </h2>
+    <pre><code>$ pip install "tiled[client]"
+$ python
+>>> from tiled.client import from_uri
+>>> client = from_uri("{{ root_url }}")</code></pre>
+    {% if binder_link %}
+      Alternatively, try it in the cloud on <a href="{{ binder_link }}" target="_blank" rel="noreferrer">Binder</a>.
+    {% endif %}
+  </section>
+  <section class="section">
+    <h1 class="title">Explore the API</h1>
+    <h2 class="subtitle">
+      Tiled includes interactive <em>OpenAPI</em> documentation you can use in your web browser.
+    </h2>
+    <p class="box">
+      The Tiled API can be accessed from any Internet-connected software,
+      including graphical programs that accept URLs and commandline
+      utilities like <code>wget</code> and <code>curl</code>.
+    </p>
+    <a href="{{ root_url }}/docs" target="_blank" rel="noreferrer">
+      <button class="button is-large is-responsive is-link">
+        Try it
+      </button>
+    </a>
+  </section>
+  <section class="section">
+    <h1 class="title">Learn</h1>
+    <h2 class="subtitle">
+      <p>
+        For tutorials, guides, and more details, see Tiled's project documentation.
+      </p>
+    </h2>
+      <p class="box">
+        Like Jupyter Notebook, Tiled is something you can easily run yourself, on your laptop.
+        Tiled can also scale up for large multi-user deployment, like JupyterHub.
+      </p>
+    <a href="https://blueskyproject.io/tiled/" target="_blank" rel="noreferrer">
+      <button class="button is-large is-responsive is-link">
+        Read
+      </button>
+    </a>
+  </section>
+</div>
+{% endblock %}

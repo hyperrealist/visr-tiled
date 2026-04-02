@@ -1,0 +1,168 @@
+# This schema (a jsonschema in YAML format) is used
+# for validating configuration.
+#
+# This schema is also used by our documentation system to build the
+# client profile reference section based on the description fields. See
+# doc/source/conf.py for that logic!
+#
+# We look to document all the options, but we don't look to enforce the perfect
+# validation logic within this file.
+#
+# ref: https://json-schema.org/learn/getting-started-step-by-step.html
+#
+$schema": http://json-schema.org/draft-07/schema#
+type: object
+additionalProperties: false
+"oneOf": [
+  {
+    "required": [
+      "uri"
+    ]
+  },
+  {
+    "required": [
+      "direct"
+    ]
+  },
+]
+properties:
+  uri:
+    type: string
+    description: |
+      URI of a Tiled server, such as
+
+          http://localhost:8000
+  username:
+    type: string
+    description: |
+      DEPRECATED. Any value given here is ignored. Instead, credentials should
+      be provided interactively when needed. Or, any API key may be used for
+      noninteractive applications.
+  auth_provider:
+    type: string
+    description: |
+      DEPRECATED. Any value given here is ignored. Instead, credentials should
+      be provided interactively when needed. Or, any API key may be used for
+      noninteractive applications.
+  headers:
+    type: object
+    additionalProperties: true
+    description: |
+      Extra HTTP headers
+  direct:
+    type: object
+    description:
+      In-line service configuration.
+      See Service Configuration reference.
+  structure_clients:
+    anyOf: [
+      {"type": "string", "enum": ["numpy", "dask"]},
+      {
+        "type": "object",
+        "properties": {
+          "array": {"type": "string"},
+          "dataframe": {"type": "string"},
+          "variable": {"type": "string"},
+          "xarray_data_array": {"type": "string"},
+          "xarray_dataset": {"type": "string"}
+        }
+      }
+    ]
+    description: |
+      Client to read structure into.
+      Default ("numpy") uses numpy arrays, pandas DataFrames, and xarrays backed
+      by numpy arrays.
+
+      ```yaml
+      structure_clients: "numpy"
+      ```
+
+      The "dask" option uses the dask-based analogues of
+      these.
+
+      ```yaml
+      structure_clients: "dask"
+      ```
+
+      To use custom clients, map each structure family or spec you want to support
+      to an import path:
+
+      ```yaml
+      structure_clients:
+        array: "package.module:CustomArrayClient"
+        dataframe: "package.module:CustomDataFrameClient"
+        my_custom_spec: "package.module:CUstomClient"
+      ```
+  cache:
+    type: object
+    additionalProperties: false
+    properties:
+      filepath:
+        type: string
+        description: |
+          Location of cache file on disk.
+          Default location is `$XDG_CACHE_HOME/tiled/http_response_cache.db`.
+      capacity:
+        type: number
+        description: |
+          Maximum size (in bytes) that the cache may allocate for response bodies.
+          The total size of a cache may be slightly higher. Default is 500 MB.
+
+          For readability it is recommended to use `_` for thousands separators.
+          Example:
+
+          ```yaml
+          capacity: 500_000_000  # 500 MB
+          ```
+
+      max_item_size:
+        type: number
+        description: |
+          Maximum size (in bytes) of any individual cached response body.
+          This limit is designed to prevent one a couple very large responses from
+          using up the entire capacity.
+
+          For readability it is recommended to use `_` for thousands separators.
+          Example:
+
+          ```yaml
+          capacity: 500_000  # 500 kB
+          ```
+
+      readonly:
+        type: boolean
+        description: |
+          Open the cache in read-only mode.
+          Do not add, remove, or update contents.
+  timeout:
+    description: |
+      Configure timeouts for the HTTP client.
+
+      Tiled sets read and write timeouts very high (30 seconds) by default to
+      accommodate pulling ~100 MB chunks over a slow network connection.
+
+      Units are seconds.
+      For details see https://www.python-httpx.org/advanced/#timeout-configuration
+
+    type: object
+    properties:
+      connection:
+        type: number
+      read:
+        type: number
+      write:
+        type: number
+      pool:
+        type: number
+  token_cache:
+    type: string
+    description: |
+      Filepath to directory of access tokens.
+      Default location is usually suitable. It is in the tokens
+      subdirectory of `TILED_CACHE_DIR`, which is
+      system-dependent and can be inspected at
+      `tiled.client.context.TILED_CACHE_DIR`.
+  verify:
+    type: boolean
+    description: |
+      Set to False to disable SSL verification.

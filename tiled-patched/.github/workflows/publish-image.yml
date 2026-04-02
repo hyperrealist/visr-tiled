@@ -1,0 +1,92 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+name: Create and publish image and chart
+
+on:
+  push:
+    branches: ['main']
+    tags: ['v*']
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # get full history for `git describe` to produce version
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772  # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Get git version
+        id: version
+        run: |
+          TILED_VERSION=$(git describe --tags --always --dirty)
+          # Remove 'v' prefix and convert to PEP 440
+          TILED_VERSION=${TILED_VERSION#v}
+          TILED_VERSION=$(echo $TILED_VERSION | sed 's/-\([0-9]\+\)-g\([0-9a-f]\+\)/.dev\1+\2/')
+          echo "TILED_VERSION=$TILED_VERSION" >> $GITHUB_OUTPUT
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@c1e51972afc2121e065aed6d45c65596fe445f3f  # v5
+        with:
+          images: ghcr.io/${{ github.repository }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=raw,value=latest
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83  # v6
+        if: github.ref_type == 'tag'
+        with:
+          context: .
+          file: Containerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            TILED_VERSION=${{ steps.version.outputs.TILED_VERSION }}
+
+      - name: Install Helm
+        uses: Azure/setup-helm@v4
+        id: install
+        if: github.ref_type == 'tag'
+
+      - name: Lint Helm chart
+        run: helm lint helm/tiled
+
+      - name: Log in to the Chart registry
+        run: |
+          echo ${{ secrets.GITHUB_TOKEN }} | helm registry login ghcr.io/${{ github.repository }} --username ${{ github.repository_owner }} --password-stdin
+
+      - name: Package and Push chart
+        if: github.ref_type == 'tag'
+        run: |
+          helm dependencies update helm/tiled
+          helm package helm/tiled --version ${{ steps.meta.outputs.version }} --app-version ${{ steps.meta.outputs.version }} -d /tmp/
+
+      - name: Publish Helm chart
+        if: github.ref_type == 'tag'
+        env:
+          REPO: ${{ github.repository_owner }}
+        run: |
+          helm push /tmp/tiled-${{ steps.meta.outputs.version }}.tgz oci://ghcr.io/${REPO@L}/charts
