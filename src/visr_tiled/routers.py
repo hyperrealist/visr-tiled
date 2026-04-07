@@ -36,9 +36,24 @@ async def test_lookup(request: Request):
 async def debug_tree(path: str, request: Request):
     root = request.app.state.root_tree
     segments = [s for s in path.strip("/").split("/") if s]
-    adapter = await root.lookup_adapter(segments)
+    try:
+        adapter = await root.lookup_adapter(segments)
+    except Exception as e:
+        return {"error": type(e).__name__, "detail": str(e)}
+
+    adapter_type = type(adapter).__name__
+
+    # Leaf node — try to read it
+    if not hasattr(adapter, "keys_range"):
+        data = await anyio.to_thread.run_sync(adapter.read)
+        return {
+            "adapter_type": adapter_type,
+            "shape": list(data.shape),
+            "dtype": str(data.dtype),
+        }
+
     keys = await adapter.keys_range(0, 100)
-    return {"path": path, "children": list(keys)}
+    return {"adapter_type": adapter_type, "children": list(keys)}
 
 
 @visr_router.get("/binned/{path:path}")
