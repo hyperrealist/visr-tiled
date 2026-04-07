@@ -1,5 +1,6 @@
 from typing import cast
 
+import anyio.to_thread
 import numpy
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security
 from tiled.adapters.protocols import ArrayAdapter
@@ -19,6 +20,16 @@ from tiled.utils import ensure_awaitable
 # from tiled.server.router import *
 
 visr_router = APIRouter()
+
+
+@visr_router.get("/test-lookup")
+async def test_lookup(request: Request):
+    root = request.app.state.root_tree
+    adapter = await root.lookup_adapter(
+        ["aaf5e459-eb01-487c-8f90-a9468d4a2852", "primary", "data", "sample_stage-x"]
+    )
+    data = await anyio.to_thread.run_sync(adapter.read)
+    return {"shape": list(data.shape), "dtype": str(data.dtype)}
 
 
 @visr_router.get("/binned/{path:path}")
