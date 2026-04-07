@@ -32,6 +32,18 @@ async def test_lookup(request: Request):
     return {"shape": list(data.shape), "dtype": str(data.dtype)}
 
 
+@visr_router.get("/debug-tree/{path:path}")
+async def debug_tree(path: str, request: Request):
+    root = request.app.state.root_tree
+    segments = [s for s in path.strip("/").split("/") if s]
+    adapter = await root.lookup_adapter(segments)
+    # list its children
+    keys = []
+    async for key in adapter.keys_range(0, 100):
+        keys.append(key)
+    return {"path": path, "children": keys}
+
+
 @visr_router.get("/binned/{path:path}")
 async def binned(  # type: ignore
     path: str,
