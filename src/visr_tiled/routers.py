@@ -32,26 +32,43 @@ async def test_lookup(request: Request):
     return {"shape": list(data.shape), "dtype": str(data.dtype)}
 
 
-@visr_router.get("/binned/{path:path}")
-async def get_binned(path: str, request: Request, bin_factor: int = 10):
+@visr_router.get("/debug-tree/{path:path}")
+async def debug_tree(path: str, request: Request):
     root = request.app.state.root_tree
     segments = [s for s in path.strip("/").split("/") if s]
 
-    adapter = await root.lookup_adapter(segments)
-    data = await adapter.read()
+    try:
+        adapter = await root.lookup_adapter(segments)
+    except Exception as e:
+        return {"error": type(e).__name__, "detail": str(e), "segments": segments}
 
-    import numpy as np
-    from fastapi.responses import Response
+    adapter_type = type(adapter).__name__
 
-    binned = np.ascontiguousarray(data[::bin_factor])
-    return Response(
-        content=binned.tobytes(),
-        media_type="application/octet-stream",
-        headers={
-            "X-Array-Shape": ",".join(str(d) for d in binned.shape),
-            "X-Array-Dtype": str(binned.dtype),
-        },
-    )
+    if hasattr(adapter, "keys_range"):
+        try:
+            keys = await adapter.keys_range(0, 100)
+            return {"adapter_type": adapter_type, "children": list(keys)}
+        except Exception as e:
+            return {
+                "error": type(e).__name__,
+                "detail": str(e),
+                "adapter_type": adapter_type,
+            }
+    else:
+        # Leaf node — read it
+        try:
+            data = await adapter.read()
+            return {
+                "adapter_type": adapter_type,
+                "shape": list(data.shape),
+                "dtype": str(data.dtype),
+            }
+        except Exception as e:
+            return {
+                "error": type(e).__name__,
+                "detail": str(e),
+                "adapter_type": adapter_type,
+            }
 
 
 @visr_router.get("/binned/{path:path}")
