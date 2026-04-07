@@ -37,11 +37,8 @@ async def debug_tree(path: str, request: Request):
     root = request.app.state.root_tree
     segments = [s for s in path.strip("/").split("/") if s]
     adapter = await root.lookup_adapter(segments)
-    # list its children
-    keys = []
-    async for key in adapter.keys_range(0, 100):
-        keys.append(key)
-    return {"path": path, "children": keys}
+    keys = await adapter.keys_range(0, 100)
+    return {"path": path, "children": list(keys)}
 
 
 @visr_router.get("/binned/{path:path}")
