@@ -1,9 +1,6 @@
-from typing import cast
-
 import anyio.to_thread
 import numpy
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security
-from tiled.adapters.protocols import ArrayAdapter
 from tiled.server.authentication import (  # type: ignore
     check_scopes,
     get_current_access_tags,
@@ -11,11 +8,9 @@ from tiled.server.authentication import (  # type: ignore
     get_current_scopes,
     get_session_state,
 )
-from tiled.server.dependencies import get_entry, get_root_tree  # type: ignore
+from tiled.server.dependencies import get_root_tree  # type: ignore
 from tiled.server.schemas import Principal
-from tiled.server.utils import record_timing
 from tiled.type_aliases import AccessTags, Scopes
-from tiled.utils import ensure_awaitable
 
 # from tiled.server.router import *
 
@@ -71,6 +66,37 @@ async def debug_tree(path: str, request: Request):
             }
 
 
+async def get_data(root, segments):
+    try:
+        adapter = await root.lookup_adapter(segments)
+    except Exception as e:
+        return {"error": type(e).__name__, "detail": str(e), "segments": segments}
+
+    adapter_type = type(adapter).__name__
+
+    if hasattr(adapter, "keys_range"):
+        try:
+            keys = await adapter.keys_range(0, 100)
+            return {"adapter_type": adapter_type, "children": list(keys)}
+        except Exception as e:
+            return {
+                "error": type(e).__name__,
+                "detail": str(e),
+                "adapter_type": adapter_type,
+            }
+    else:
+        # Leaf node — read it
+        try:
+            data = await adapter.read()
+            return data
+        except Exception as e:
+            return {
+                "error": type(e).__name__,
+                "detail": str(e),
+                "adapter_type": adapter_type,
+            }
+
+
 @visr_router.get("/binned/{path:path}")
 async def binned(  # type: ignore
     path: str,
@@ -94,34 +120,38 @@ async def binned(  # type: ignore
     _=Security(check_scopes, scopes=["read:data"]),  # noqa: B008
 ):
     """Fetch a folded representation of an array dataset."""
-    entry = await get_entry(
-        path,
-        ["read:data"],
-        principal,
-        authn_access_tags,
-        authn_scopes,
-        root_tree,
-        session_state,
-        request.state.metrics,
-        None,
-        getattr(request.app.state, "access_policy", None),
-    )
+    root = request.app.state.root_tree
+    segments = [s for s in path.strip("/").split("/") if s]
+    data = await get_data(root, segments)
 
-    # Only allow array-like adapters (must have .read)
-    if not callable(getattr(entry, "read", None)):
-        raise HTTPException(
-            status_code=400,
-            detail=f"Entry at path '{path}' is not array-like and cannot be binned.",
-        )
-    array_entry = cast(ArrayAdapter, entry)
-    try:
-        with record_timing(request.state.metrics, "read"):
-            data = await ensure_awaitable(array_entry.read)  # type: ignore[attr-defined]
-    except Exception as e:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Error reading array data from entry at path '{path}': {e}",
-        ) from e
+    # entry = await get_entry(
+    #     path,
+    #     ["read:data"],
+    #     principal,
+    #     authn_access_tags,
+    #     authn_scopes,
+    #     root_tree,
+    #     session_state,
+    #     request.state.metrics,
+    #     None,
+    #     getattr(request.app.state, "access_policy", None),
+    # )
+
+    # # Only allow array-like adapters (must have .read)
+    # if not callable(getattr(entry, "read", None)):
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail=f"Entry at path '{path}' is not array-like and cannot be binned.",
+    #     )
+    # array_entry = cast(ArrayAdapter, entry)
+    # try:
+    #     with record_timing(request.state.metrics, "read"):
+    #       data = await ensure_awaitable(array_entry.read) # type: ignore[attr-defined]
+    # except Exception as e:
+    #     raise HTTPException(
+    #         status_code=500,
+    #         detail=f"Error reading array data from entry at path '{path}': {e}",
+    #     ) from e
 
     readbacks = numpy.array(
         [
