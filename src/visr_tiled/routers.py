@@ -8,6 +8,7 @@ from tiled.server.authentication import (  # type: ignore
     get_current_scopes,
     get_session_state,
 )
+from tiled.server.core import NoEntry
 from tiled.server.dependencies import get_root_tree  # type: ignore
 from tiled.server.schemas import Principal
 from tiled.type_aliases import AccessTags, Scopes
@@ -70,7 +71,8 @@ async def get_data(root, segments):
     try:
         adapter = await root.lookup_adapter(segments)
     except Exception as e:
-        return {"error": type(e).__name__, "detail": str(e), "segments": segments}
+        raise e
+        # return {"error": type(e).__name__, "detail": str(e), "segments": segments}
 
     adapter_type = type(adapter).__name__
 
@@ -158,7 +160,7 @@ async def binned(  # type: ignore
         readback_x = await get_data(root, [segments[0], "primary", "sample_stage-x"])  # noqa: F841
         readback_y = await get_data(root, [segments[0], "primary", "sample_stage-y"])  # noqa: F841
         readback_z = await get_data(root, [segments[0], "primary", "sample_stage-z"])  # noqa: F841
-    except Exception:
+    except NoEntry:
         # step scan pattern?
         readback_x = await get_data(root, [segments[0], "primary", "X"])  # noqa: F841
         readback_y = await get_data(root, [segments[0], "primary", "Y"])  # noqa: F841
