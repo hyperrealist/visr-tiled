@@ -4,7 +4,7 @@ import anyio.to_thread
 import numpy
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security
 from h5py._hl.dataset import Dataset as H5Dataset
-from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
+from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT
 from tiled.server.authentication import (  # type: ignore
     check_scopes,
     get_current_access_tags,
@@ -174,7 +174,7 @@ async def binned(  # type: ignore
         scan_type = ScanType.StepScan
     except Exception as e:
         raise HTTPException(
-            status_code=HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(f"Could not find readback data for '{uid = }': {e}"),
         ) from None
 
