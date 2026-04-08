@@ -113,8 +113,8 @@ async def fill_data(root, segments, shape=None, fill_value=numpy.nan):
 async def binned(  # type: ignore
     path: str,
     request: Request,
-    x: int,
-    y: int,
+    x_dim_index: int = 0,
+    y_dim_index: int = 1,
     xmin: float | None = None,
     xmax: float | None = None,
     ymin: float | None = None,
@@ -167,6 +167,28 @@ async def binned(  # type: ignore
     #     ) from e
 
     try:
+        red_total = await get_data(root, [uid, "primary", "RedTotal"])
+        green_total = await get_data(root, [uid, "primary", "GreenTotal"])
+        blue_total = await get_data(root, [uid, "primary", "BlueTotal"])
+        data = {
+            "RedTotal": red_total,
+            "GreenTotal": green_total,
+            "BlueTotal": blue_total,
+        }
+        assert isinstance(red_total, H5Dataset) or isinstance(red_total, numpy.ndarray)
+        assert isinstance(green_total, H5Dataset) or isinstance(
+            green_total, numpy.ndarray
+        )
+        assert isinstance(blue_total, H5Dataset) or isinstance(
+            blue_total, numpy.ndarray
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(f"Could not find data channels for '{uid = }': {e}"),
+        ) from None
+
+    try:
         readback_x = await get_data(root, [uid, "primary", "sample_stage-x"])  # noqa: F841
         scan_type = ScanType.FlyScan
     except NoEntry:
@@ -201,40 +223,42 @@ async def binned(  # type: ignore
 
     print(uid)
 
-    # # mask out the points that lie outside the slice
-    # mask = numpy.ones(data.size, dtype=bool)
-    # if slice_dim is not None:
-    #     for slice_spec in slice_dim:
-    #         try:
-    #             dim_str, center_str, thick_str = slice_spec.split(":")
-    #             dim = int(dim_str)
-    #             center = float(center_str)
-    #             thickness = float(thick_str)
-    #         except ValueError:
-    #             raise HTTPException(
-    #                 status_code=400,
-    #                 detail=(
-    #                     f"Invalid slice_dim format: {slice_spec}."
-    #                     " Expected dim:center:thickness"
-    #                 ),
-    #             ) from None
-    #         if dim < 0 or dim >= readbacks.shape[0]:
-    #             raise HTTPException(
-    #                 status_code=400,
-    #                 detail=(
-    #                     f"slice_dim index {dim} is out of range"
-    #                     f" (0-{readbacks.shape[0] - 1})"
-    #                 ),
-    #             )
-    #         if dim in (x, y):
-    #             raise HTTPException(
-    #                 status_code=400,
-    #                 detail=f"slice_dim cannot contain x or y dimension {dim}",
-    #             )
-    #         mask &= numpy.abs(readbacks[dim, :] - center) <= thickness
+    # mask out the points that lie outside the slice
+    mask = numpy.ones(readbacks.size, dtype=bool)
+    if slice_dim is not None:
+        for slice_spec in slice_dim:
+            try:
+                dim_str, center_str, thick_str = slice_spec.split(":")
+                dim = int(dim_str)
+                center = float(center_str)
+                thickness = float(thick_str)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Invalid slice_dim format: {slice_spec}."
+                        " Expected dim:center:thickness"
+                    ),
+                ) from None
+            if dim < 0 or dim >= readbacks.shape[0]:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"slice_dim index {dim} is out of range"
+                        f" (0-{readbacks.shape[0] - 1})"
+                    ),
+                )
+            if dim in (x_dim_index, y_dim_index):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"slice_dim cannot contain x or y dimension {dim}",
+                )
+            mask &= numpy.abs(readbacks[dim, :] - center) <= thickness
 
-    #     readbacks = readbacks[:, mask]
-    #     data = data[mask]
+        readbacks = readbacks[:, mask]
+        data = {channel: d[mask] for channel, d in data.items()}
+
+    print(f"After slicing: {readbacks.shape}, {red_total.shape}")
 
     # readback_x = readbacks[x, :]
     # readback_y = readbacks[y, :]
