@@ -188,8 +188,8 @@ async def binned(  # type: ignore
             root, [uid, "primary", "sample_stage-z"], readback_x.shape
         )  # noqa: F841
     else:
-        readback_y = fill_data(root, [uid, "primary", "Y"], readback_x.shape)  # noqa: F841
-        readback_z = fill_data(root, [uid, "primary", "Z"], readback_x.shape)  # noqa: F841
+        readback_y = await fill_data(root, [uid, "primary", "Y"], readback_x.shape)  # noqa: F841
+        readback_z = await fill_data(root, [uid, "primary", "Z"], readback_x.shape)  # noqa: F841
 
     readbacks = numpy.array(  # noqa: F841
         [
