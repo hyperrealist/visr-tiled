@@ -1,6 +1,6 @@
 import anyio.to_thread
 import numpy
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security
+from fastapi import APIRouter, Depends, Query, Request, Security
 from tiled.server.authentication import (  # type: ignore
     check_scopes,
     get_current_access_tags,
@@ -122,7 +122,7 @@ async def binned(  # type: ignore
     """Fetch a folded representation of an array dataset."""
     root = request.app.state.root_tree
     segments = [s for s in path.strip("/").split("/") if s]
-    data = await get_data(root, segments)
+    # data = await get_data(root, segments)
 
     # entry = await get_entry(
     #     path,
@@ -153,67 +153,80 @@ async def binned(  # type: ignore
     #         detail=f"Error reading array data from entry at path '{path}': {e}",
     #     ) from e
 
-    readbacks = numpy.array(
+    try:
+        # fly scan pattern?
+        readback_x = await get_data(root, [segments[0], "primary", "sample_stage-x"])  # noqa: F841
+        readback_y = await get_data(root, [segments[0], "primary", "sample_stage-y"])  # noqa: F841
+        readback_z = await get_data(root, [segments[0], "primary", "sample_stage-z"])  # noqa: F841
+    except Exception:
+        # step scan pattern?
+        readback_x = await get_data(root, [segments[0], "primary", "X"])  # noqa: F841
+        readback_y = await get_data(root, [segments[0], "primary", "Y"])  # noqa: F841
+        readback_z = await get_data(root, [segments[0], "primary", "Z"])  # noqa: F841
+
+    # TODO: use other readback pattern if failed, backfill missing readbacks with NaNs
+
+    readbacks = numpy.array(  # noqa: F841
         [
-            data["sample_stage-x"],
-            data["sample_stage-y"],
-            data["sample_stage-z"],
+            readback_x,
+            readback_y,
+            readback_z,
         ]
     )
 
-    # mask out the points that lie outside the slice
-    mask = numpy.ones(data.size, dtype=bool)
-    if slice_dim is not None:
-        for slice_spec in slice_dim:
-            try:
-                dim_str, center_str, thick_str = slice_spec.split(":")
-                dim = int(dim_str)
-                center = float(center_str)
-                thickness = float(thick_str)
-            except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Invalid slice_dim format: {slice_spec}."
-                        " Expected dim:center:thickness"
-                    ),
-                ) from None
-            if dim < 0 or dim >= readbacks.shape[0]:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"slice_dim index {dim} is out of range"
-                        f" (0-{readbacks.shape[0] - 1})"
-                    ),
-                )
-            if dim in (x, y):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"slice_dim cannot contain x or y dimension {dim}",
-                )
-            mask &= numpy.abs(readbacks[dim, :] - center) <= thickness
+    # # mask out the points that lie outside the slice
+    # mask = numpy.ones(data.size, dtype=bool)
+    # if slice_dim is not None:
+    #     for slice_spec in slice_dim:
+    #         try:
+    #             dim_str, center_str, thick_str = slice_spec.split(":")
+    #             dim = int(dim_str)
+    #             center = float(center_str)
+    #             thickness = float(thick_str)
+    #         except ValueError:
+    #             raise HTTPException(
+    #                 status_code=400,
+    #                 detail=(
+    #                     f"Invalid slice_dim format: {slice_spec}."
+    #                     " Expected dim:center:thickness"
+    #                 ),
+    #             ) from None
+    #         if dim < 0 or dim >= readbacks.shape[0]:
+    #             raise HTTPException(
+    #                 status_code=400,
+    #                 detail=(
+    #                     f"slice_dim index {dim} is out of range"
+    #                     f" (0-{readbacks.shape[0] - 1})"
+    #                 ),
+    #             )
+    #         if dim in (x, y):
+    #             raise HTTPException(
+    #                 status_code=400,
+    #                 detail=f"slice_dim cannot contain x or y dimension {dim}",
+    #             )
+    #         mask &= numpy.abs(readbacks[dim, :] - center) <= thickness
 
-        readbacks = readbacks[:, mask]
-        data = data[mask]
+    #     readbacks = readbacks[:, mask]
+    #     data = data[mask]
 
-    readback_x = readbacks[x, :]
-    readback_y = readbacks[y, :]
+    # readback_x = readbacks[x, :]
+    # readback_y = readbacks[y, :]
 
-    # bundle the kwargs
-    histogram2d_kwargs = {}
-    if all(opt is not None for opt in (width, height)):
-        histogram2d_kwargs["bins"] = (width, height)
-    if all(opt is not None for opt in (xmin, xmax, ymin, ymax)):
-        histogram2d_kwargs["range"] = ((xmin, xmax), (ymin, ymax))
+    # # bundle the kwargs
+    # histogram2d_kwargs = {}
+    # if all(opt is not None for opt in (width, height)):
+    #     histogram2d_kwargs["bins"] = (width, height)
+    # if all(opt is not None for opt in (xmin, xmax, ymin, ymax)):
+    #     histogram2d_kwargs["range"] = ((xmin, xmax), (ymin, ymax))
 
-    binned_output = {
-        channel: compute_binned_image(
-            data[channel], readback_x, readback_y, **histogram2d_kwargs
-        )
-        for channel in ("RedTotal", "GreenTotal", "BlueTotal")
-    }
+    # binned_output = {
+    #     channel: compute_binned_image(
+    #         data[channel], readback_x, readback_y, **histogram2d_kwargs
+    #     )
+    #     for channel in ("RedTotal", "GreenTotal", "BlueTotal")
+    # }
 
-    return {"data": binned_output}
+    # return {"data": binned_output}
 
 
 def compute_binned_image(data, readback_x, readback_y, **kwargs):
