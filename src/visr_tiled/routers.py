@@ -1,6 +1,10 @@
+import enum
+
 import anyio.to_thread
 import numpy
-from fastapi import APIRouter, Depends, Query, Request, Security
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security
+from h5py._hl.dataset import Dataset as H5Dataset
+from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY
 from tiled.server.authentication import (  # type: ignore
     check_scopes,
     get_current_access_tags,
@@ -14,6 +18,12 @@ from tiled.server.schemas import Principal
 from tiled.type_aliases import AccessTags, Scopes
 
 # from tiled.server.router import *
+
+
+class ScanType(enum.Enum):
+    StepScan = "StepScan"
+    FlyScan = "FlyScan"
+
 
 visr_router = APIRouter()
 
@@ -67,12 +77,11 @@ async def debug_tree(path: str, request: Request):
             }
 
 
-async def get_data(root, segments):
+async def get_data(root, segments) -> H5Dataset | numpy.ndarray | dict:
     try:
         adapter = await root.lookup_adapter(segments)
-    except Exception as e:
-        raise e
-        # return {"error": type(e).__name__, "detail": str(e), "segments": segments}
+    except Exception:
+        raise
 
     adapter_type = type(adapter).__name__
 
@@ -80,23 +89,24 @@ async def get_data(root, segments):
         try:
             keys = await adapter.keys_range(0, 100)
             return {"adapter_type": adapter_type, "children": list(keys)}
-        except Exception as e:
-            return {
-                "error": type(e).__name__,
-                "detail": str(e),
-                "adapter_type": adapter_type,
-            }
+        except Exception:
+            raise
     else:
         # Leaf node — read it
         try:
             data = await adapter.read()
             return data
-        except Exception as e:
-            return {
-                "error": type(e).__name__,
-                "detail": str(e),
-                "adapter_type": adapter_type,
-            }
+        except Exception:
+            raise
+
+
+async def fill_data(root, segments, shape=None, fill_value=numpy.nan):
+    try:
+        return await get_data(root, segments)
+    except NoEntry:
+        if shape is None:
+            raise
+        return numpy.full(shape, fill_value)
 
 
 @visr_router.get("/binned/{path:path}")
@@ -124,6 +134,7 @@ async def binned(  # type: ignore
     """Fetch a folded representation of an array dataset."""
     root = request.app.state.root_tree
     segments = [s for s in path.strip("/").split("/") if s]
+    uid = segments[0]
     # data = await get_data(root, segments)
 
     # entry = await get_entry(
@@ -156,17 +167,29 @@ async def binned(  # type: ignore
     #     ) from e
 
     try:
-        # fly scan pattern?
-        readback_x = await get_data(root, [segments[0], "primary", "sample_stage-x"])  # noqa: F841
-        readback_y = await get_data(root, [segments[0], "primary", "sample_stage-y"])  # noqa: F841
-        readback_z = await get_data(root, [segments[0], "primary", "sample_stage-z"])  # noqa: F841
+        readback_x = await get_data(root, [uid, "primary", "sample_stage-x"])  # noqa: F841
+        scan_type = ScanType.FlyScan
     except NoEntry:
-        # step scan pattern?
-        readback_x = await get_data(root, [segments[0], "primary", "X"])  # noqa: F841
-        readback_y = await get_data(root, [segments[0], "primary", "Y"])  # noqa: F841
-        readback_z = await get_data(root, [segments[0], "primary", "Z"])  # noqa: F841
+        readback_x = await get_data(root, [uid, "primary", "X"])  # noqa: F841
+        scan_type = ScanType.StepScan
+    except Exception as e:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(f"Could not find readback data for '{uid = }': {e}"),
+        ) from None
 
-    # TODO: use other readback pattern if failed, backfill missing readbacks with NaNs
+    assert isinstance(readback_x, H5Dataset) or isinstance(readback_x, numpy.ndarray)
+
+    if scan_type == ScanType.FlyScan:
+        readback_y = fill_data(
+            root, [uid, "primary", "sample_stage-y"], readback_x.shape
+        )  # noqa: F841
+        readback_z = fill_data(
+            root, [uid, "primary", "sample_stage-z"], readback_x.shape
+        )  # noqa: F841
+    else:
+        readback_y = fill_data(root, [uid, "primary", "Y"], readback_x.shape)  # noqa: F841
+        readback_z = fill_data(root, [uid, "primary", "Z"], readback_x.shape)  # noqa: F841
 
     readbacks = numpy.array(  # noqa: F841
         [
@@ -175,6 +198,8 @@ async def binned(  # type: ignore
             readback_z,
         ]
     )
+
+    print(uid)
 
     # # mask out the points that lie outside the slice
     # mask = numpy.ones(data.size, dtype=bool)
