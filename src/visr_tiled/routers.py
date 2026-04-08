@@ -135,37 +135,8 @@ async def binned(  # type: ignore
     root = request.app.state.root_tree
     segments = [s for s in path.strip("/").split("/") if s]
     uid = segments[0]
-    # data = await get_data(root, segments)
 
-    # entry = await get_entry(
-    #     path,
-    #     ["read:data"],
-    #     principal,
-    #     authn_access_tags,
-    #     authn_scopes,
-    #     root_tree,
-    #     session_state,
-    #     request.state.metrics,
-    #     None,
-    #     getattr(request.app.state, "access_policy", None),
-    # )
-
-    # # Only allow array-like adapters (must have .read)
-    # if not callable(getattr(entry, "read", None)):
-    #     raise HTTPException(
-    #         status_code=400,
-    #         detail=f"Entry at path '{path}' is not array-like and cannot be binned.",
-    #     )
-    # array_entry = cast(ArrayAdapter, entry)
-    # try:
-    #     with record_timing(request.state.metrics, "read"):
-    #       data = await ensure_awaitable(array_entry.read) # type: ignore[attr-defined]
-    # except Exception as e:
-    #     raise HTTPException(
-    #         status_code=500,
-    #         detail=f"Error reading array data from entry at path '{path}': {e}",
-    #     ) from e
-
+    # load data
     try:
         red_total = await get_data(root, [uid, "primary", "RedTotal"])
         green_total = await get_data(root, [uid, "primary", "GreenTotal"])
@@ -188,32 +159,33 @@ async def binned(  # type: ignore
             detail=(f"Could not find data channels for '{uid = }': {e}"),
         ) from None
 
+    # find readbacks
     try:
-        readback_x = await get_data(root, [uid, "primary", "sample_stage-x"])  # noqa: F841
+        readback_x = await get_data(root, [uid, "primary", "sample_stage-x"])
         scan_type = ScanType.FlyScan
     except NoEntry:
-        readback_x = await get_data(root, [uid, "primary", "X"])  # noqa: F841
+        readback_x = await get_data(root, [uid, "primary", "X"])
         scan_type = ScanType.StepScan
     except Exception as e:
         raise HTTPException(
             status_code=HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(f"Could not find readback data for '{uid = }': {e}"),
         ) from None
-
     assert isinstance(readback_x, H5Dataset) or isinstance(readback_x, numpy.ndarray)
 
+    # load readback Y and Z, if missing fill with NaNs
     if scan_type == ScanType.FlyScan:
         readback_y = fill_data(
             root, [uid, "primary", "sample_stage-y"], readback_x.shape
-        )  # noqa: F841
+        )
         readback_z = fill_data(
             root, [uid, "primary", "sample_stage-z"], readback_x.shape
-        )  # noqa: F841
+        )
     else:
-        readback_y = await fill_data(root, [uid, "primary", "Y"], readback_x.shape)  # noqa: F841
-        readback_z = await fill_data(root, [uid, "primary", "Z"], readback_x.shape)  # noqa: F841
+        readback_y = await fill_data(root, [uid, "primary", "Y"], readback_x.shape)
+        readback_z = await fill_data(root, [uid, "primary", "Z"], readback_x.shape)
 
-    readbacks = numpy.array(  # noqa: F841
+    readbacks = numpy.array(
         [
             readback_x,
             readback_y,
@@ -260,24 +232,24 @@ async def binned(  # type: ignore
 
     print(f"After slicing: {readbacks.shape}, {red_total.shape}")
 
-    # readback_x = readbacks[x, :]
-    # readback_y = readbacks[y, :]
+    selected_rb_x = readbacks[x_dim_index, :]
+    selected_rb_y = readbacks[y_dim_index, :]
 
-    # # bundle the kwargs
-    # histogram2d_kwargs = {}
-    # if all(opt is not None for opt in (width, height)):
-    #     histogram2d_kwargs["bins"] = (width, height)
-    # if all(opt is not None for opt in (xmin, xmax, ymin, ymax)):
-    #     histogram2d_kwargs["range"] = ((xmin, xmax), (ymin, ymax))
+    # bundle the kwargs
+    histogram2d_kwargs = {}
+    if all(opt is not None for opt in (width, height)):
+        histogram2d_kwargs["bins"] = (width, height)
+    if all(opt is not None for opt in (xmin, xmax, ymin, ymax)):
+        histogram2d_kwargs["range"] = ((xmin, xmax), (ymin, ymax))
 
-    # binned_output = {
-    #     channel: compute_binned_image(
-    #         data[channel], readback_x, readback_y, **histogram2d_kwargs
-    #     )
-    #     for channel in ("RedTotal", "GreenTotal", "BlueTotal")
-    # }
+    binned_output = {
+        channel: compute_binned_image(
+            data[channel], selected_rb_x, selected_rb_y, **histogram2d_kwargs
+        )
+        for channel in ("RedTotal", "GreenTotal", "BlueTotal")
+    }
 
-    # return {"data": binned_output}
+    return {"data": binned_output}
 
 
 def compute_binned_image(data, readback_x, readback_y, **kwargs):
