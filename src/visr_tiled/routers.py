@@ -242,20 +242,14 @@ async def binned(  # type: ignore
     if all(opt is not None for opt in (xmin, xmax, ymin, ymax)):
         histogram2d_kwargs["range"] = ((xmin, xmax), (ymin, ymax))
 
-    binned_output = {
-        channel: compute_binned_image(
-            data[channel], selected_rb_x, selected_rb_y, **histogram2d_kwargs
-        )
-        for channel in ("RedTotal", "GreenTotal", "BlueTotal")
-    }
     binned_output = {}
     for channel in ("RedTotal", "GreenTotal", "BlueTotal"):
         binned_channel = compute_binned_image(
             data[channel], selected_rb_x, selected_rb_y, **histogram2d_kwargs
         )
-        binned_output[channel] = binned_channel["img"]
-    binned_output["x_limits"] = binned_channel["x"]
-    binned_output["y_limits"] = binned_channel["y"]
+        binned_output[channel] = binned_channel["img"].tolist()
+    binned_output["x_limits"] = binned_channel["x"].tolist()
+    binned_output["y_limits"] = binned_channel["y"].tolist()
 
     return binned_output
 
