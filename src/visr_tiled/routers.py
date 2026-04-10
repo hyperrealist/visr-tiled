@@ -248,8 +248,16 @@ async def binned(  # type: ignore
         )
         for channel in ("RedTotal", "GreenTotal", "BlueTotal")
     }
+    binned_output = {}
+    for channel in ("RedTotal", "GreenTotal", "BlueTotal"):
+        binned_channel = compute_binned_image(
+            data[channel], selected_rb_x, selected_rb_y, **histogram2d_kwargs
+        )
+        binned_output[channel] = binned_channel["img"]
+    binned_output["x_limits"] = binned_channel["x"]
+    binned_output["y_limits"] = binned_channel["y"]
 
-    return {"data": binned_output}
+    return binned_output
 
 
 def compute_binned_image(data, readback_x, readback_y, **kwargs):
