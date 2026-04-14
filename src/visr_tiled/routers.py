@@ -1,4 +1,5 @@
 import enum
+import inspect
 
 import anyio.to_thread
 import numpy
@@ -63,12 +64,16 @@ async def debug_tree(path: str, request: Request):
     else:
         # Leaf node — read it
         try:
-            data = await adapter.read()
-            return {
-                "adapter_type": adapter_type,
-                "shape": list(data.shape),
-                "dtype": str(data.dtype),
-            }
+            if inspect.iscoroutinefunction(adapter.read):
+                data = await adapter.read()
+            else:
+                data = await anyio.to_thread.run_sync(adapter.read)
+            result: dict = {"adapter_type": adapter_type}
+            if hasattr(data, "shape"):
+                result["shape"] = list(data.shape)
+            if hasattr(data, "dtype"):
+                result["dtype"] = str(data.dtype)
+            return result
         except Exception as e:
             return {
                 "error": type(e).__name__,
@@ -94,7 +99,10 @@ async def get_data(root, segments) -> H5Dataset | numpy.ndarray | dict:
     else:
         # Leaf node — read it
         try:
-            data = await adapter.read()
+            if inspect.iscoroutinefunction(adapter.read):
+                data = await adapter.read()
+            else:
+                data = await anyio.to_thread.run_sync(adapter.read)
             return data
         except Exception:
             raise
@@ -161,11 +169,18 @@ async def binned(  # type: ignore
 
     # find readbacks
     try:
-        readback_x = await get_data(root, [uid, "primary", "sample_stage-x"])
-        scan_type = ScanType.FlyScan
-    except NoEntry:
-        readback_x = await get_data(root, [uid, "primary", "X"])
-        scan_type = ScanType.StepScan
+        try:
+            readback_x = await get_data(
+                root, [uid, "primary", "internal", "sample_stage-x"]
+            )
+            scan_type = ScanType.FlyScan
+        except NoEntry:
+            try:
+                readback_x = await get_data(root, [uid, "primary", "sample_stage-x"])
+                scan_type = ScanType.FlyScan
+            except NoEntry:
+                readback_x = await get_data(root, [uid, "primary", "X"])
+                scan_type = ScanType.StepScan
     except Exception as e:
         raise HTTPException(
             status_code=HTTP_422_UNPROCESSABLE_CONTENT,
@@ -175,12 +190,22 @@ async def binned(  # type: ignore
 
     # load readback Y and Z, if missing fill with NaNs
     if scan_type == ScanType.FlyScan:
-        readback_y = fill_data(
-            root, [uid, "primary", "sample_stage-y"], readback_x.shape
-        )
-        readback_z = fill_data(
-            root, [uid, "primary", "sample_stage-z"], readback_x.shape
-        )
+        try:
+            readback_y = await get_data(
+                root, [uid, "primary", "internal", "sample_stage-y"]
+            )
+        except NoEntry:
+            readback_y = await fill_data(
+                root, [uid, "primary", "sample_stage-y"], readback_x.shape
+            )
+        try:
+            readback_z = await get_data(
+                root, [uid, "primary", "internal", "sample_stage-z"]
+            )
+        except NoEntry:
+            readback_z = await fill_data(
+                root, [uid, "primary", "sample_stage-z"], readback_x.shape
+            )
     else:
         readback_y = await fill_data(root, [uid, "primary", "Y"], readback_x.shape)
         readback_z = await fill_data(root, [uid, "primary", "Z"], readback_x.shape)
