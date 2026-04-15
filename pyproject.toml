@@ -120,7 +120,7 @@ commands = [
 tiled = { path = "tiled-patched" }
 
 [tool.uv]
-constraint-dependencies = ["starlette<1.0.0"]
+constraint-dependencies = ["starlette<0.51.0"]
 
 
 [tool.ruff]
