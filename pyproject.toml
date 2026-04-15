@@ -119,6 +119,10 @@ commands = [
 [tool.uv.sources]
 tiled = { path = "tiled-patched" }
 
+[tool.uv]
+constraint-dependencies = ["starlette<1.0.0"]
+
+
 [tool.ruff]
 src = ["src", "tests"]
 exclude = ["tiled-patched"]
