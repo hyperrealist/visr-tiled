@@ -117,6 +117,67 @@ async def fill_data(root, segments, shape=None, fill_value=numpy.nan):
         return numpy.full(shape, fill_value)
 
 
+async def get_readbacks(root, uid, readback_x):
+    """
+    Utility function to load readback positions (x, y, z) and detect scan type.
+
+    Args:
+        root: The root tree to fetch data from.
+        uid: Unique identifier for the dataset.
+        readback_x: The x readback data.
+
+    Returns:
+        A tuple containing:
+            - A numpy array with readback positions (x, y, z).
+            - The detected scan type (FlyScan or StepScan).
+    """
+    # Detect scan type and load readback_x
+    try:
+        try:
+            readback_x = await get_data(
+                root, [uid, "primary", "internal", "sample_stage-x"]
+            )
+            scan_type = ScanType.FlyScan
+        except NoEntry:
+            try:
+                readback_x = await get_data(root, [uid, "primary", "sample_stage-x"])
+                scan_type = ScanType.FlyScan
+            except NoEntry:
+                readback_x = await get_data(root, [uid, "primary", "X"])
+                scan_type = ScanType.StepScan
+    except Exception as e:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(f"Could not find readback data for '{uid = }': {e}"),
+        ) from None
+
+    assert isinstance(readback_x, H5Dataset) or isinstance(readback_x, numpy.ndarray)
+
+    # Load readback Y and Z, if missing fill with NaNs
+    if scan_type == ScanType.FlyScan:
+        try:
+            readback_y = await get_data(
+                root, [uid, "primary", "internal", "sample_stage-y"]
+            )
+        except NoEntry:
+            readback_y = await fill_data(
+                root, [uid, "primary", "sample_stage-y"], readback_x.shape
+            )
+        try:
+            readback_z = await get_data(
+                root, [uid, "primary", "internal", "sample_stage-z"]
+            )
+        except NoEntry:
+            readback_z = await fill_data(
+                root, [uid, "primary", "sample_stage-z"], readback_x.shape
+            )
+    else:
+        readback_y = await fill_data(root, [uid, "primary", "Y"], readback_x.shape)
+        readback_z = await fill_data(root, [uid, "primary", "Z"], readback_x.shape)
+
+    return numpy.array([readback_x, readback_y, readback_z]), scan_type
+
+
 @visr_router.get("/binned/{path:path}")
 async def binned(  # type: ignore
     path: str,
@@ -167,58 +228,8 @@ async def binned(  # type: ignore
             detail=(f"Could not find data channels for '{uid = }': {e}"),
         ) from None
 
-    # find readbacks
-    try:
-        try:
-            readback_x = await get_data(
-                root, [uid, "primary", "internal", "sample_stage-x"]
-            )
-            scan_type = ScanType.FlyScan
-        except NoEntry:
-            try:
-                readback_x = await get_data(root, [uid, "primary", "sample_stage-x"])
-                scan_type = ScanType.FlyScan
-            except NoEntry:
-                readback_x = await get_data(root, [uid, "primary", "X"])
-                scan_type = ScanType.StepScan
-    except Exception as e:
-        raise HTTPException(
-            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(f"Could not find readback data for '{uid = }': {e}"),
-        ) from None
-    assert isinstance(readback_x, H5Dataset) or isinstance(readback_x, numpy.ndarray)
-
-    # load readback Y and Z, if missing fill with NaNs
-    if scan_type == ScanType.FlyScan:
-        try:
-            readback_y = await get_data(
-                root, [uid, "primary", "internal", "sample_stage-y"]
-            )
-        except NoEntry:
-            readback_y = await fill_data(
-                root, [uid, "primary", "sample_stage-y"], readback_x.shape
-            )
-        try:
-            readback_z = await get_data(
-                root, [uid, "primary", "internal", "sample_stage-z"]
-            )
-        except NoEntry:
-            readback_z = await fill_data(
-                root, [uid, "primary", "sample_stage-z"], readback_x.shape
-            )
-    else:
-        readback_y = await fill_data(root, [uid, "primary", "Y"], readback_x.shape)
-        readback_z = await fill_data(root, [uid, "primary", "Z"], readback_x.shape)
-
-    readbacks = numpy.array(
-        [
-            readback_x,
-            readback_y,
-            readback_z,
-        ]
-    )
-
-    print(uid)
+    # Get readbacks and scan type using the utility function
+    readbacks, scan_type = await get_readbacks(root, uid, None)
 
     # mask out the points that lie outside the slice
     mask = numpy.ones(readbacks.size, dtype=bool)
@@ -257,8 +268,8 @@ async def binned(  # type: ignore
 
     print(f"After slicing: {readbacks.shape}, {red_total.shape}")
 
-    selected_rb_x = readbacks[x_dim_index, :]
-    selected_rb_y = readbacks[y_dim_index, :]
+    x_positions = readbacks[x_dim_index, :]
+    y_positions = readbacks[y_dim_index, :]
 
     # bundle the kwargs
     histogram2d_kwargs = {}
@@ -270,7 +281,7 @@ async def binned(  # type: ignore
     binned_output = {}
     for channel in ("RedTotal", "GreenTotal", "BlueTotal"):
         binned_channel = compute_binned_image(
-            data[channel], selected_rb_x, selected_rb_y, **histogram2d_kwargs
+            data[channel], x_positions, y_positions, **histogram2d_kwargs
         )
         binned_output[channel] = binned_channel["img"].tolist()
     binned_output["x_limits"] = binned_channel["x"].tolist()
