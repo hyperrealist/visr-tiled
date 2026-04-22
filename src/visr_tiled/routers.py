@@ -5,6 +5,8 @@ import anyio.to_thread
 import numpy
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Security
 from h5py._hl.dataset import Dataset as H5Dataset
+from scanspec.core import stack2dimension
+from scanspec.specs import Spec
 from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT
 from tiled.server.authentication import (  # type: ignore
     check_scopes,
@@ -117,6 +119,25 @@ async def fill_data(root, segments, shape=None, fill_value=numpy.nan):
         return numpy.full(shape, fill_value)
 
 
+async def get_setpoints(root, uid):
+    """Return setpoints from the bluesky start document stored in a node's metadata."""
+    adapter = await root.lookup_adapter([uid])
+    metadata = adapter.metadata()
+    try:
+        spec = Spec.deserialize(metadata["start"]["spec"])
+    except KeyError as e:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=f"Could not find 'start.spec' in metadata for '{uid}': {e}",
+        ) from None
+
+    midpoints = list(stack2dimension(spec.calculate()).midpoints.values())
+    x = midpoints[0]
+    y = midpoints[1] if len(midpoints) > 1 else numpy.full(x.shape, numpy.nan)
+    z = midpoints[2] if len(midpoints) > 2 else numpy.full(x.shape, numpy.nan)
+    return numpy.array([x, y, z])
+
+
 async def get_readbacks(root, uid, readback_x):
     """
     Utility function to load readback positions (x, y, z) and detect scan type.
@@ -190,6 +211,7 @@ async def binned(  # type: ignore
     ymax: float | None = None,
     width: int | None = None,
     height: int | None = None,
+    setpoints: bool = False,
     slice_dim: list[str] | None = Query(  # noqa: B008
         None, description="Repeatable: dim:center:thickness"
     ),
@@ -228,8 +250,11 @@ async def binned(  # type: ignore
             detail=(f"Could not find data channels for '{uid = }': {e}"),
         ) from None
 
-    # Get readbacks and scan type using the utility function
-    readbacks, scan_type = await get_readbacks(root, uid, None)
+    # Get positions either from setpoints (spec) or readbacks
+    if setpoints:
+        readbacks = await get_setpoints(root, uid)
+    else:
+        readbacks, _ = await get_readbacks(root, uid, None)
 
     # mask out the points that lie outside the slice
     mask = numpy.ones(readbacks.size, dtype=bool)
