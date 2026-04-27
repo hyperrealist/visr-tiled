@@ -2874,6 +2874,20 @@ wheels = [
 ]
 
 [[package]]
+name = "scanspec"
+version = "0.10.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "numpy" },
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/7b/7c/9d9de144ca0e0be895caf824f30e2c8d809c032b248fb3a6c92a4df30660/scanspec-0.10.0.tar.gz", hash = "sha256:8d0d93c4b5a3c74d983a38c6f6001d3cc574429a7a26604a31a61b82c373f0a9", size = 266550, upload-time = "2026-02-02T12:59:56.678Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/f8/6d/8500f4bece0aa7cd2af374739f2944c9fa52f0fc5e1d9e65a366f37f494a/scanspec-0.10.0-py3-none-any.whl", hash = "sha256:0979cdcf9790573478f863c36844e1446e87996f945b1bd9c1dcbd7fb663ad92", size = 37728, upload-time = "2026-02-02T12:59:55.843Z" },
+]
+
+[[package]]
 name = "shellingham"
 version = "1.5.4"
 source = { registry = "https://pypi.org/simple" }
@@ -3576,6 +3590,7 @@ wheels = [
 name = "visr-tiled"
 source = { editable = "." }
 dependencies = [
+    { name = "scanspec" },
     { name = "tiled", extra = ["server"] },
 ]
 
@@ -3592,7 +3607,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "tiled", extras = ["server"], directory = "tiled-patched" }]
+requires-dist = [
+    { name = "scanspec" },
+    { name = "tiled", extras = ["server"], directory = "tiled-patched" },
+]
 
 [package.metadata.requires-dev]
 dev = [
