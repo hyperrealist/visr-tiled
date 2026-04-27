@@ -222,7 +222,27 @@ async def binned(  # type: ignore
     authn_scopes: Scopes = Depends(get_current_scopes),  # type: ignore  # noqa: B008
     _=Security(check_scopes, scopes=["read:data"]),  # noqa: B008
 ):
-    """Fetch a folded representation of an array dataset."""
+    """Fetch a folded representation of an array dataset.
+
+    Args:
+        x_dim_index: Index into the position array to use as the x axis (default 0).
+        y_dim_index: Index into the position array to use as the y axis (default 1).
+        xmin: Lower bound of the x histogram range. When combined with xmax, ymin, and
+            ymax, passed as the ``range`` argument to ``numpy.histogram2d``.
+        xmax: Upper bound of the x histogram range.
+        ymin: Lower bound of the y histogram range.
+        ymax: Upper bound of the y histogram range.
+        width: Number of bins along the x axis. Requires ``height`` to also be set.
+        height: Number of bins along the y axis. Requires ``width`` to also be set.
+        setpoints: If ``True``, derive positions from the ScanSpec setpoints stored in
+            the run's start document rather than from the recorded readback values.
+        slice_dim: Repeatable query parameter that restricts which data points
+            contribute to the image by filtering along a dimension that is neither x
+            nor y.  Each value must be formatted as ``dim:center:thickness``, where
+            *dim* is the integer dimension index, *center* is the centre of the slice,
+            and *thickness* is the half-width (points with
+            ``|position - center| <= thickness`` are kept).
+    """
     root = request.app.state.root_tree
     segments = [s for s in path.strip("/").split("/") if s]
     uid = segments[0]
