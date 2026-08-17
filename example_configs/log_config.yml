@@ -1,0 +1,58 @@
+# Extends Tiled's own example_log_config.yml (tiled-patched/example_log_config.yml)
+# with a handler for the `tiled` and `visr_tiled` logger namespaces. Without this,
+# module-level `logging.getLogger(__name__)` calls under tiled.* and visr_tiled.*
+# (e.g. the busy_timeout/retry diagnostics added to tiled-patched, and the
+# logger.debug in visr_tiled/routers.py) have no handler anywhere in their
+# propagation chain and are silently dropped -- only uvicorn.error/uvicorn.access
+# are configured by Tiled's own upstream default.
+version: 1
+disable_existing_loggers: false
+filters:
+  correlation_id:
+    "()": asgi_correlation_id.CorrelationIdFilter
+    uuid_length: 16
+    default_value: '-'
+formatters:
+  default:
+    "()": uvicorn.logging.DefaultFormatter
+    datefmt: "%Y-%m-%dT%H:%M:%S"
+    format:  '[%(asctime)s.%(msecs)03dZ] [%(correlation_id)s] %(levelprefix)s %(name)s: %(message)s'
+    use_colors: true
+  access:
+    "()": uvicorn.logging.AccessFormatter
+    datefmt: "%Y-%m-%dT%H:%M:%S"
+    format: '[%(asctime)s.%(msecs)03dZ] [%(correlation_id)s] %(levelprefix)s %(client_addr)s - "%(request_line)s" %(status_code)s'
+handlers:
+  default:
+    formatter: default
+    class: logging.StreamHandler
+    filters:
+      - correlation_id
+    stream: ext://sys.stderr
+  access:
+    formatter: access
+    class: logging.StreamHandler
+    filters:
+      - correlation_id
+    stream: ext://sys.stdout
+loggers:
+  uvicorn.error:
+    level: INFO
+    handlers:
+      - default
+    propagate: no
+  uvicorn.access:
+    level: INFO
+    handlers:
+      - access
+    propagate: no
+  tiled:
+    level: INFO
+    handlers:
+      - default
+    propagate: no
+  visr_tiled:
+    level: DEBUG
+    handlers:
+      - default
+    propagate: no

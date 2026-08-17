@@ -88,6 +88,7 @@ COPY --from=ghcr.io/astral-sh/uv:0.10 /uv /uvx /bin/
 RUN mkdir -p /deploy/config
 COPY example_configs/single_catalog_single_user.yml /deploy/config
 ENV TILED_CONFIG=/deploy/config
+COPY example_configs/log_config.yml /deploy/log_config.yml
 
 EXPOSE 8000
 
@@ -98,7 +99,7 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 ENTRYPOINT ["/entrypoint.sh"]
 # ----------------------------------------------------------------------------------------------------- /user
-CMD ["tiled", "serve", "config", "--host", "0.0.0.0", "--port", "8000", "--scalable"]
+CMD ["tiled", "serve", "config", "--host", "0.0.0.0", "--port", "8000", "--scalable", "--log-config", "/deploy/log_config.yml"]
 # CMD ["python", "-Xfrozen_modules=off", "-m", "debugpy", \
 #     "--listen", "0.0.0.0:5678", "--wait-for-client", \
 #     "-m", "tiled", "serve", "config", \
