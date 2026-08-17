@@ -1,6 +1,7 @@
 import copy
 import os
 import sys
+import time
 import warnings
 from pathlib import Path
 from typing import Any, Iterator, List, Optional, Tuple, Union
@@ -30,6 +31,14 @@ from .array import ArrayAdapter
 
 SWMR_DEFAULT = bool(int(os.getenv("TILED_HDF5_SWMR_DEFAULT", "0")))
 INLINED_DEPTH = int(os.getenv("TILED_HDF5_INLINED_CONTENTS_MAX_DEPTH", "7"))
+
+# A live write can leave the on-disk array shape temporarily behind what the
+# catalog DB already declares for it. Bound how hard from_catalog() retries
+# before giving up, so a reader waits out that race instead of erroring on it.
+HDF5_SHAPE_MISMATCH_RETRIES = int(os.getenv("TILED_HDF5_SHAPE_MISMATCH_RETRIES", "3"))
+HDF5_SHAPE_MISMATCH_RETRY_DELAY = float(
+    os.getenv("TILED_HDF5_SHAPE_MISMATCH_RETRY_DELAY", "0.1")
+)
 
 HDF5_DATASET = Sentinel("HDF5_DATASET")
 HDF5_BROKEN_LINK = Sentinel("HDF5_BROKEN_LINK")
@@ -246,22 +255,38 @@ class HDF5ArrayAdapter(ArrayAdapter):
         ] or [assets[0].data_uri]
         file_paths = [path_from_uri(uri) for uri in data_uris]
 
-        array = cls.lazy_load_hdf5_array(
-            *file_paths, dataset=dataset, swmr=swmr, libver=libver, locking=locking
-        )
+        if isinstance(slice, str):
+            slice = NDSlice.from_numpy_str(slice)
 
-        if slice:
-            if isinstance(slice, str):
-                slice = NDSlice.from_numpy_str(slice)
-            array = array[slice]
-        if squeeze:
-            array = array.squeeze()
-
-        if array.shape != tuple(structure.shape):
-            raise ValueError(
-                f"Shape mismatch between array data and structure: "
-                f"{array.shape} != {tuple(structure.shape)}"
+        for attempt in range(HDF5_SHAPE_MISMATCH_RETRIES + 1):
+            array = cls.lazy_load_hdf5_array(
+                *file_paths, dataset=dataset, swmr=swmr, libver=libver, locking=locking
             )
+            if slice:
+                array = array[slice]
+            if squeeze:
+                array = array.squeeze()
+
+            if array.shape == tuple(structure.shape):
+                break
+
+            # Only retry the case where the file is still catching up to
+            # what the catalog already declares (write in progress) -- a
+            # short-lived race that clears itself once the next flush
+            # lands. A different rank, or the array running *ahead* of the
+            # catalog on any axis, won't be fixed by re-reading the file;
+            # the latter is a catalog-side lag (see busy_timeout in
+            # server/connection_pool.py), not a file one.
+            catching_up = len(array.shape) == len(structure.shape) and all(
+                n <= m for n, m in zip(array.shape, structure.shape)
+            )
+            if not catching_up or attempt == HDF5_SHAPE_MISMATCH_RETRIES:
+                raise ValueError(
+                    f"Shape mismatch between array data and structure: "
+                    f"{array.shape} != {tuple(structure.shape)}"
+                )
+            time.sleep(HDF5_SHAPE_MISMATCH_RETRY_DELAY)
+
         if array.dtype != structure.data_type.to_numpy_dtype():
             raise ValueError(
                 f"Data type mismatch between array data and structure: "

@@ -132,6 +132,13 @@ def _set_sqlite_pragma(conn, record):
     # https://docs.sqlalchemy.org/en/13/dialects/sqlite.html#foreign-key-support
     cursor = conn.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    # SQLite's default busy_timeout is 0: a writer that finds the database
+    # locked by another writer fails immediately ("database is locked")
+    # instead of waiting briefly for the lock to clear. WAL mode (see
+    # catalog/core.py) lets readers and a writer coexist, but still allows
+    # only one writer at a time, so concurrent PUTs from the write path can
+    # still collide. Give SQLite a window to retry before erroring out.
+    cursor.execute("PRAGMA busy_timeout=5000")
     cursor.close()
 
 

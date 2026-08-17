@@ -271,10 +271,18 @@ async def binned(  # type: ignore
         ) from None
 
     # Get positions either from setpoints (spec) or readbacks
-    if setpoints:
-        readbacks = await get_setpoints(root, uid)
-    else:
-        readbacks, _ = await get_readbacks(root, uid, None)
+    try:
+        if setpoints:
+            readbacks = await get_setpoints(root, uid)
+        else:
+            readbacks, _ = await get_readbacks(root, uid, None)
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(f"Could not find position data for '{uid = }': {e}"),
+        ) from None
 
     # mask out the points that lie outside the slice
     mask = numpy.ones(readbacks.size, dtype=bool)
