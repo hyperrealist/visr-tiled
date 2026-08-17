@@ -1,5 +1,6 @@
 import enum
 import inspect
+import logging
 
 import anyio.to_thread
 import numpy
@@ -21,6 +22,8 @@ from tiled.server.schemas import Principal
 from tiled.type_aliases import AccessTags, Scopes
 
 # from tiled.server.router import *
+
+logger = logging.getLogger(__name__)
 
 
 class ScanType(enum.Enum):
@@ -319,7 +322,12 @@ async def binned(  # type: ignore
         readbacks = readbacks[:, mask]
         data = {channel: d[mask] for channel, d in data.items()}
 
-    print(f"After slicing: {readbacks.shape}, {red_total.shape}")
+    logger.debug(
+        "readbacks shape %s, red_total shape %s (sliced=%s)",
+        readbacks.shape,
+        red_total.shape,
+        slice_dim is not None,
+    )
 
     x_positions = readbacks[x_dim_index, :]
     y_positions = readbacks[y_dim_index, :]

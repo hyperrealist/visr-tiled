@@ -1,4 +1,5 @@
 import copy
+import logging
 import os
 import sys
 import time
@@ -42,6 +43,8 @@ HDF5_SHAPE_MISMATCH_RETRY_DELAY = float(
 
 HDF5_DATASET = Sentinel("HDF5_DATASET")
 HDF5_BROKEN_LINK = Sentinel("HDF5_BROKEN_LINK")
+
+logger = logging.getLogger(__name__)
 
 
 def parse_hdf5_tree(
@@ -281,10 +284,29 @@ class HDF5ArrayAdapter(ArrayAdapter):
                 n <= m for n, m in zip(array.shape, structure.shape)
             )
             if not catching_up or attempt == HDF5_SHAPE_MISMATCH_RETRIES:
+                logger.info(
+                    "Giving up on shape mismatch for %s after %d attempt(s): "
+                    "array %s != structure %s (catching_up=%s)",
+                    dataset,
+                    attempt + 1,
+                    array.shape,
+                    tuple(structure.shape),
+                    catching_up,
+                )
                 raise ValueError(
                     f"Shape mismatch between array data and structure: "
                     f"{array.shape} != {tuple(structure.shape)}"
                 )
+            logger.info(
+                "Retrying shape mismatch for %s (attempt %d/%d): "
+                "array %s != structure %s, waiting %.2fs",
+                dataset,
+                attempt + 1,
+                HDF5_SHAPE_MISMATCH_RETRIES,
+                array.shape,
+                tuple(structure.shape),
+                HDF5_SHAPE_MISMATCH_RETRY_DELAY,
+            )
             time.sleep(HDF5_SHAPE_MISMATCH_RETRY_DELAY)
 
         if array.dtype != structure.data_type.to_numpy_dtype():

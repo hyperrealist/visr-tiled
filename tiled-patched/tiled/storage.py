@@ -1,5 +1,6 @@
 import dataclasses
 import functools
+import logging
 import os
 from abc import abstractmethod
 from pathlib import Path
@@ -7,12 +8,15 @@ from typing import TYPE_CHECKING, Dict, Literal, Optional, Union
 from urllib.parse import urlparse, urlunparse
 
 import sqlalchemy.pool
+from sqlalchemy import event
 
 from .utils import ensure_uri, path_from_uri, sanitize_uri
 
 if TYPE_CHECKING:
     import adbc_driver_manager.dbapi
     from obstore.store import AzureStore, GCSStore, LocalStore, S3Store
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "EmbeddedSQLStorage",
@@ -27,6 +31,15 @@ __all__ = [
 
 
 SUPPORTED_OBJECT_URI_SCHEMES = {"http", "https"}  # TODO: Add "s3", "gs", "azure", "az"
+
+
+def _set_sqlite_busy_timeout(dbapi_connection, connection_record):
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA busy_timeout=5000")
+    finally:
+        cursor.close()
+    logger.info("Set PRAGMA busy_timeout=5000 on new SQLStorage SQLite connection")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -252,6 +265,16 @@ class SQLStorage(Storage):
                 creator, pool_size=self.pool_size, max_overflow=self.max_overflow
             )
             monitor_db_pool(pool, self.uri)
+
+        if self.dialect == "sqlite":
+            # This pool is independent of the one in server/connection_pool.py
+            # (used for the catalog database) -- it backs table-structured
+            # data sources (SQLStorage) and, when its URI happens to point at
+            # the same SQLite file as the catalog, competes with it for the
+            # same single-writer lock. Without this, a collision here fails
+            # immediately with the default busy_timeout=0 instead of waiting
+            # briefly, same as the catalog pool did before that was patched.
+            event.listens_for(pool, "connect")(_set_sqlite_busy_timeout)
 
         return pool
 

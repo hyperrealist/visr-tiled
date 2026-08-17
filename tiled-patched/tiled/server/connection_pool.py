@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from collections.abc import AsyncGenerator
@@ -12,6 +13,8 @@ from sqlalchemy.pool import AsyncAdaptedQueuePool, StaticPool
 from ..server.settings import DatabaseSettings, Settings, get_settings
 from ..utils import ensure_specified_sql_driver, safe_json_dump, sanitize_uri
 from .metrics import monitor_db_pool
+
+logger = logging.getLogger(__name__)
 
 # contextlib.nullcontext got async context manager support in 3.10
 if sys.version_info < (3, 10):
@@ -140,6 +143,7 @@ def _set_sqlite_pragma(conn, record):
     # still collide. Give SQLite a window to retry before erroring out.
     cursor.execute("PRAGMA busy_timeout=5000")
     cursor.close()
+    logger.info("Set PRAGMA busy_timeout=5000 on new catalog SQLite connection")
 
 
 def is_memory_sqlite(url: Union[URL, str]) -> bool:
