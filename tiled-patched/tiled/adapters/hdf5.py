@@ -1,3 +1,4 @@
+import builtins
 import copy
 import logging
 import os
@@ -273,14 +274,35 @@ class HDF5ArrayAdapter(ArrayAdapter):
             if array.shape == tuple(structure.shape):
                 break
 
+            same_rank = len(array.shape) == len(structure.shape)
+
+            # The file is fully flushed but the catalog hasn't committed
+            # the new shape yet -- a catalog-side lag (see busy_timeout in
+            # server/connection_pool.py), not a file one, and re-reading
+            # the file can't wait that out. Rather than erroring, serve
+            # what the catalog currently declares: slice the array down
+            # to structure.shape and treat it as resolved. No retry
+            # needed -- the data we need is already fully present.
+            ahead = same_rank and all(
+                n >= m for n, m in zip(array.shape, structure.shape)
+            )
+            if ahead:
+                logger.info(
+                    "Array ahead of structure for %s: array %s >= structure %s, "
+                    "slicing down to structure shape",
+                    dataset,
+                    array.shape,
+                    tuple(structure.shape),
+                )
+                array = array[tuple(builtins.slice(0, m) for m in structure.shape)]
+                break
+
             # Only retry the case where the file is still catching up to
             # what the catalog already declares (write in progress) -- a
             # short-lived race that clears itself once the next flush
-            # lands. A different rank, or the array running *ahead* of the
-            # catalog on any axis, won't be fixed by re-reading the file;
-            # the latter is a catalog-side lag (see busy_timeout in
-            # server/connection_pool.py), not a file one.
-            catching_up = len(array.shape) == len(structure.shape) and all(
+            # lands. A different rank won't be fixed by re-reading the
+            # file either.
+            catching_up = same_rank and all(
                 n <= m for n, m in zip(array.shape, structure.shape)
             )
             if not catching_up or attempt == HDF5_SHAPE_MISMATCH_RETRIES:
