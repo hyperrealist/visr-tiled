@@ -1,6 +1,7 @@
 import enum
 import inspect
 import logging
+import os
 
 import anyio.to_thread
 import numpy
@@ -24,6 +25,11 @@ from tiled.type_aliases import AccessTags, Scopes
 # from tiled.server.router import *
 
 logger = logging.getLogger(__name__)
+
+CROSS_CHANNEL_RETRIES = int(os.getenv("VISR_TILED_CROSS_CHANNEL_RETRIES", "5"))
+CROSS_CHANNEL_RETRY_DELAY = float(
+    os.getenv("VISR_TILED_CROSS_CHANNEL_RETRY_DELAY", "0.1")
+)
 
 
 class ScanType(enum.Enum):
@@ -120,6 +126,11 @@ async def fill_data(root, segments, shape=None, fill_value=numpy.nan):
         if shape is None:
             raise
         return numpy.full(shape, fill_value)
+
+
+def _channel_length(array: H5Dataset | numpy.ndarray | dict) -> int:
+    assert isinstance(array, (H5Dataset, numpy.ndarray))
+    return array.shape[-1]
 
 
 async def get_setpoints(root, uid):
@@ -286,6 +297,84 @@ async def binned(  # type: ignore
             status_code=HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(f"Could not find position data for '{uid = }': {e}"),
         ) from None
+
+    # The three totals and the readbacks are each fetched independently and can
+    # race a live write, landing at different lengths. Target the longest length
+    # seen on the first read (an indication the others will reach it shortly),
+    # and retry re-fetching everything until they do. If they don't catch up
+    # within the retry budget, fall back to truncating to whatever the shortest
+    # currently is, so we always return a consistent (if possibly stale) image.
+    lengths = {
+        "RedTotal": _channel_length(red_total),
+        "GreenTotal": _channel_length(green_total),
+        "BlueTotal": _channel_length(blue_total),
+        "readbacks": readbacks.shape[-1],
+    }
+    target_len = max(lengths.values())
+    for attempt in range(CROSS_CHANNEL_RETRIES):
+        if min(lengths.values()) >= target_len:
+            break
+        logger.info(
+            "Cross-channel length mismatch for '%s' (attempt %d/%d): %s, "
+            "waiting to reach %d",
+            uid,
+            attempt + 1,
+            CROSS_CHANNEL_RETRIES,
+            lengths,
+            target_len,
+        )
+        await anyio.sleep(CROSS_CHANNEL_RETRY_DELAY)
+        try:
+            new_red_total = await get_data(root, [uid, "primary", "RedTotal"])
+            new_green_total = await get_data(root, [uid, "primary", "GreenTotal"])
+            new_blue_total = await get_data(root, [uid, "primary", "BlueTotal"])
+            if setpoints:
+                new_readbacks = await get_setpoints(root, uid)
+            else:
+                new_readbacks, _ = await get_readbacks(root, uid, None)
+        except Exception as e:
+            logger.info(
+                "Re-fetch failed while reconciling channel lengths for '%s': %s",
+                uid,
+                e,
+            )
+            break
+        # Only commit the re-fetch once all four succeed together, so
+        # red_total/green_total/blue_total/readbacks and `lengths` never
+        # drift out of sync with each other.
+        red_total, green_total, blue_total, readbacks = (
+            new_red_total,
+            new_green_total,
+            new_blue_total,
+            new_readbacks,
+        )
+        lengths = {
+            "RedTotal": _channel_length(red_total),
+            "GreenTotal": _channel_length(green_total),
+            "BlueTotal": _channel_length(blue_total),
+            "readbacks": readbacks.shape[-1],
+        }
+    else:
+        logger.info(
+            "Giving up on cross-channel reconciliation for '%s' after %d attempt(s), "
+            "falling back to shortest: %s",
+            uid,
+            CROSS_CHANNEL_RETRIES,
+            lengths,
+        )
+
+    common_len = min(target_len, min(lengths.values()))
+    if any(length != common_len for length in lengths.values()):
+        red_total = red_total[:common_len]
+        green_total = green_total[:common_len]
+        blue_total = blue_total[:common_len]
+        readbacks = readbacks[:, :common_len]
+
+    data = {
+        "RedTotal": red_total,
+        "GreenTotal": green_total,
+        "BlueTotal": blue_total,
+    }
 
     # mask out the points that lie outside the slice
     mask = numpy.ones(readbacks.size, dtype=bool)
