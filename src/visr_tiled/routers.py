@@ -152,6 +152,37 @@ async def get_setpoints(root, uid):
     return numpy.array([x, y, z])
 
 
+async def _fetch_readback_x(root, uid) -> tuple[H5Dataset | numpy.ndarray, ScanType]:
+    try:
+        x = await get_data(root, [uid, "primary", "internal", "sample_stage-x"])
+        scan_type = ScanType.FlyScan
+    except NoEntry:
+        try:
+            x = await get_data(root, [uid, "primary", "sample_stage-x"])
+            scan_type = ScanType.FlyScan
+        except NoEntry:
+            x = await get_data(root, [uid, "primary", "X"])
+            scan_type = ScanType.StepScan
+    assert isinstance(x, (H5Dataset, numpy.ndarray))
+    return x, scan_type
+
+
+async def _fetch_readback_yz(root, uid, scan_type, x_shape):
+    if scan_type == ScanType.FlyScan:
+        try:
+            y = await get_data(root, [uid, "primary", "internal", "sample_stage-y"])
+        except NoEntry:
+            y = await fill_data(root, [uid, "primary", "sample_stage-y"], x_shape)
+        try:
+            z = await get_data(root, [uid, "primary", "internal", "sample_stage-z"])
+        except NoEntry:
+            z = await fill_data(root, [uid, "primary", "sample_stage-z"], x_shape)
+    else:
+        y = await fill_data(root, [uid, "primary", "Y"], x_shape)
+        z = await fill_data(root, [uid, "primary", "Z"], x_shape)
+    return y, z
+
+
 async def get_readbacks(root, uid, readback_x):
     """
     Utility function to load readback positions (x, y, z) and detect scan type.
@@ -166,20 +197,8 @@ async def get_readbacks(root, uid, readback_x):
             - A numpy array with readback positions (x, y, z).
             - The detected scan type (FlyScan or StepScan).
     """
-    # Detect scan type and load readback_x
     try:
-        try:
-            readback_x = await get_data(
-                root, [uid, "primary", "internal", "sample_stage-x"]
-            )
-            scan_type = ScanType.FlyScan
-        except NoEntry:
-            try:
-                readback_x = await get_data(root, [uid, "primary", "sample_stage-x"])
-                scan_type = ScanType.FlyScan
-            except NoEntry:
-                readback_x = await get_data(root, [uid, "primary", "X"])
-                scan_type = ScanType.StepScan
+        readback_x, scan_type = await _fetch_readback_x(root, uid)
     except Exception as e:
         raise HTTPException(
             status_code=HTTP_422_UNPROCESSABLE_CONTENT,
@@ -187,28 +206,72 @@ async def get_readbacks(root, uid, readback_x):
         ) from None
 
     assert isinstance(readback_x, H5Dataset) or isinstance(readback_x, numpy.ndarray)
+    readback_y, readback_z = await _fetch_readback_yz(
+        root, uid, scan_type, readback_x.shape
+    )
 
-    # Load readback Y and Z, if missing fill with NaNs
-    if scan_type == ScanType.FlyScan:
+    # x, y, and z are each fetched independently and can race a live write,
+    # landing at different lengths. Target the longest length seen on the
+    # first read and retry re-fetching all three until they reach it,
+    # falling back to truncating to the shortest if they don't converge
+    # within the retry budget -- same strategy as the cross-channel
+    # reconciliation in binned().
+    lengths = {
+        "x": _channel_length(readback_x),
+        "y": _channel_length(readback_y),
+        "z": _channel_length(readback_z),
+    }
+    target_len = max(lengths.values())
+    for attempt in range(CROSS_CHANNEL_RETRIES):
+        if min(lengths.values()) >= target_len:
+            break
+        logger.info(
+            "Cross-axis length mismatch for '%s' (attempt %d/%d): %s, "
+            "waiting to reach %d",
+            uid,
+            attempt + 1,
+            CROSS_CHANNEL_RETRIES,
+            lengths,
+            target_len,
+        )
+        await anyio.sleep(CROSS_CHANNEL_RETRY_DELAY)
         try:
-            readback_y = await get_data(
-                root, [uid, "primary", "internal", "sample_stage-y"]
+            new_x, new_scan_type = await _fetch_readback_x(root, uid)
+            new_y, new_z = await _fetch_readback_yz(
+                root, uid, new_scan_type, new_x.shape
             )
-        except NoEntry:
-            readback_y = await fill_data(
-                root, [uid, "primary", "sample_stage-y"], readback_x.shape
+        except Exception as e:
+            logger.info(
+                "Re-fetch failed while reconciling readback lengths for '%s': %s",
+                uid,
+                e,
             )
-        try:
-            readback_z = await get_data(
-                root, [uid, "primary", "internal", "sample_stage-z"]
-            )
-        except NoEntry:
-            readback_z = await fill_data(
-                root, [uid, "primary", "sample_stage-z"], readback_x.shape
-            )
+            break
+        readback_x, readback_y, readback_z, scan_type = (
+            new_x,
+            new_y,
+            new_z,
+            new_scan_type,
+        )
+        lengths = {
+            "x": _channel_length(readback_x),
+            "y": _channel_length(readback_y),
+            "z": _channel_length(readback_z),
+        }
     else:
-        readback_y = await fill_data(root, [uid, "primary", "Y"], readback_x.shape)
-        readback_z = await fill_data(root, [uid, "primary", "Z"], readback_x.shape)
+        logger.info(
+            "Giving up on cross-axis reconciliation for '%s' after %d attempt(s), "
+            "falling back to shortest: %s",
+            uid,
+            CROSS_CHANNEL_RETRIES,
+            lengths,
+        )
+
+    common_len = min(target_len, min(lengths.values()))
+    if any(length != common_len for length in lengths.values()):
+        readback_x = readback_x[:common_len]
+        readback_y = readback_y[:common_len]
+        readback_z = readback_z[:common_len]
 
     return numpy.array([readback_x, readback_y, readback_z]), scan_type
 
