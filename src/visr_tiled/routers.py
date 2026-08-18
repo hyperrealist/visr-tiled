@@ -474,6 +474,7 @@ async def binned(  # type: ignore
         readbacks = readbacks[:, mask]
         data = {channel: d[mask] for channel, d in data.items()}
 
+    assert isinstance(red_total, (H5Dataset, numpy.ndarray))
     logger.debug(
         "readbacks shape %s, red_total shape %s (sliced=%s)",
         readbacks.shape,
